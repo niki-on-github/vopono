@@ -3,6 +3,8 @@ use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::net::IpAddr;
+use std::io::BufRead;
+use regex::{Regex,Captures};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DnsConfig {
@@ -14,7 +16,7 @@ impl DnsConfig {
         std::fs::create_dir_all(format!("/etc/netns/{}", ns_name))
             .with_context(|| format!("Failed to create directory: /etc/netns/{}", ns_name))?;
 
-        let mut f = std::fs::File::create(format!("/etc/netns/{}/resolv.conf", ns_name))
+        let mut resolv = std::fs::File::create(format!("/etc/netns/{}/resolv.conf", ns_name))
             .with_context(|| {
                 format!(
                     "Failed to open resolv.conf: /etc/netns/{}/resolv.conf",
@@ -34,7 +36,7 @@ impl DnsConfig {
 
         let suffix = suffixes.join(" ");
         if !suffix.is_empty() {
-            writeln!(f, "search {}", suffix).with_context(|| {
+            writeln!(resolv, "search {}", suffix).with_context(|| {
                 format!(
                     "Failed to overwrite resolv.conf: /etc/netns/{}/resolv.conf",
                     ns_name
@@ -43,13 +45,50 @@ impl DnsConfig {
         }
 
         for dns in servers {
-            writeln!(f, "nameserver {}", dns).with_context(|| {
+            writeln!(resolv, "nameserver {}", dns).with_context(|| {
                 format!(
                     "Failed to overwrite resolv.conf: /etc/netns/{}/resolv.conf",
                     ns_name
                 )
             })?;
         }
+
+        let mut hosts = std::fs::File::create(format!("/etc/netns/{}/hosts", ns_name))
+            .with_context(|| {
+                format!(
+                    "Failed to open hosts: /etc/netns/{}/hosts",
+                    ns_name
+                )
+            })?;
+
+        writeln!(hosts, "{} jdownloader.server01.lan", "10.0.1.10").with_context(|| {
+            format!(
+                "Failed to overwrite hosts: /etc/netns/{}/hosts",
+                ns_name
+            )
+        })?;
+
+        writeln!(hosts, "{} vaultwarden.server01.lan", "10.0.1.10").with_context(|| {
+            format!(
+                "Failed to overwrite hosts: /etc/netns/{}/hosts",
+                ns_name
+            )
+        })?;
+
+        let src = std::fs::File::open("/etc/nsswitch.conf")?;
+        let file = std::fs::File::create(format!("/etc/netns/{}/nsswitch.conf", ns_name)).unwrap();
+        let mut file = std::io::LineWriter::new(file);
+        let reader = std::io::BufReader::new(src);
+        for line in reader.lines() {
+            let re = Regex::new(r"^hosts:.*$").unwrap();
+            let buffer = line?;
+            let k = re.replace(&buffer, |_caps: &Captures| { "hosts: files mymachines myhostname dns" });
+            file.write(k.as_ref().as_ref()).unwrap();
+            write!(file, "\n")?;
+        }
+
+        file.flush().unwrap();
+
 
         Ok(Self { ns_name })
     }

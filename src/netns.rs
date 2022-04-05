@@ -200,6 +200,18 @@ impl NetworkNamespace {
         ])
         .with_context(|| format!("Failed to assign static IP to veth source: {}", veth_source))?;
 
+        self.exec(&[
+            "ip",
+            "route",
+            "add",
+            "10.0.1.10/32",
+            "via",
+            &ip_nosub,
+            "dev",
+            veth_source,
+        ])
+        .with_context(|| format!("Failed to assign server route: {}", veth_source))?;
+
         info!(
             "IP address of namespace as seen from host: {}",
             veth_source_ip_nosub
