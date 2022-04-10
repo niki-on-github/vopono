@@ -204,6 +204,26 @@ impl NetworkNamespace {
         ])
         .with_context(|| format!("Failed to assign static IP to veth source: {}", veth_source))?;
 
+        // NOTE: we allow the bootstrap dns server to connect without vpn
+        // TODO: we should remove this route when startup was completed
+        self.exec(&[
+                    "ip",
+                    "route",
+                    "add",
+                    "8.8.8.8",
+                    "via",
+                    &ip_nosub,
+                    "dev",
+                    veth_source,
+                ])
+                .with_context(|| {
+                    format!(
+                        "Failed to assig bootstrap dns route to veth source: {}",
+                        veth_source
+                    )
+                })?;
+
+
         if let Some(my_hosts) = hosts {
             for host in my_hosts {
                 self.exec(&[

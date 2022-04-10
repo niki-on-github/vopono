@@ -201,6 +201,10 @@ pub fn killswitch(
 ) -> anyhow::Result<()> {
     debug!("Setting OpenVPN killswitch....");
 
+    // Enable hostname resolution with our bootstrap dns
+    netns.exec(&["sudo", "resolvconf", "-u"])?;
+    netns.exec(&["sudo", "resolvconf", "-r"])?;
+
     match firewall {
         Firewall::IpTables => {
             let ipcmds = if disable_ipv6 {
@@ -466,9 +470,9 @@ pub fn killswitch(
                             "inet",
                             &netns.name,
                             "output",
-                            // "ip",
-                            // "daddr",
-                            // &ip.to_string(),
+                            "ip",
+                            "daddr",
+                            &_ip.to_string(),
                             &remote.protocol.to_string(),
                             "dport",
                             port_str.as_str(),
@@ -484,9 +488,9 @@ pub fn killswitch(
                             "inet",
                             &netns.name,
                             "output",
-                            // "ip6",
-                            // "daddr",
-                            // &ip.to_string(),
+                            "ip6",
+                            "daddr",
+                            &_ip.to_string(),
                             &remote.protocol.to_string(),
                             "dport",
                             port_str.as_str(),
@@ -503,9 +507,9 @@ pub fn killswitch(
                             "inet",
                             &netns.name,
                             "output",
-                            // "ip",
-                            // "daddr",
-                            // &name.to_string(),
+                            "ip",
+                            "daddr",
+                            &_name.to_string(),
                             &remote.protocol.to_string(),
                             "dport",
                             port_str.as_str(),
