@@ -250,6 +250,9 @@ pub fn exec(command: ExecCommand) -> anyhow::Result<()> {
         let target_subnet = get_target_subnet()?;
         ns.add_loopback()?;
         ns.add_veth_pair()?;
+        if let Some(ref open_hosts) = command.open_hosts {
+            super::util::open_hosts(&ns, open_hosts.to_vec(), firewall)?;
+        }
         ns.add_routing(target_subnet, command.open_hosts)?;
         ns.add_host_masquerade(target_subnet, interface.clone(), firewall)?;
         ns.add_firewall_exception(

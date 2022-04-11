@@ -1,5 +1,6 @@
 pub mod country_map;
 mod open_ports;
+mod open_hosts;
 pub mod wireguard;
 
 use crate::vpn::Protocol;
@@ -11,6 +12,7 @@ use ipnet::Ipv4Net;
 use log::{debug, info, warn};
 use nix::unistd::{Group, User};
 pub use open_ports::open_ports;
+pub use open_hosts::open_hosts;
 use rand::seq::SliceRandom;
 use regex::Regex;
 use std::fs;
