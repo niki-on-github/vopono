@@ -15,6 +15,7 @@ use anyhow::{anyhow, bail};
 use log::{debug, error, info, warn};
 use signal_hook::{consts::SIGINT, iterator::Signals};
 use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
 use std::{
     fs::create_dir_all,
     io::{self, Write},
@@ -44,8 +45,9 @@ pub fn exec(command: ExecCommand) -> anyhow::Result<()> {
             .read(true)
             .open(&config_path)?;
     }
-    let mut vopono_config_settings = config::Config::default();
-    vopono_config_settings.merge(config::File::from(config_path))?;
+    let vopono_config_settings_builder =
+        config::Config::builder().add_source(config::File::from(config_path));
+    let vopono_config_settings = vopono_config_settings_builder.build()?;
 
     // Assign firewall from args or vopono config file
     let firewall: Firewall = command
@@ -202,14 +204,41 @@ pub fn exec(command: ExecCommand) -> anyhow::Result<()> {
 
     let mut ns;
     let _sysctl;
-    let interface: NetworkInterface = match command.interface {
+
+    // Assign network interface from args or vopono config file
+    let interface = command.interface.clone().or_else(|| {
+        vopono_config_settings
+            .get_string("interface")
+            .map_err(|e| {
+                debug!("vopono config.toml: {:?}", e);
+                anyhow!("Failed to read config file")
+            })
+            .map(|x| {
+                NetworkInterface::from_str(&x)
+                    .map_err(|e| {
+                        debug!("vopono config.toml: {:?}", e);
+                        anyhow!("Failed to parse network interface in config file")
+                    })
+                    .ok()
+            })
+            .ok()
+            .flatten()
+    });
+    let interface: NetworkInterface = match interface {
         Some(x) => anyhow::Result::<NetworkInterface>::Ok(x),
-        None => Ok(NetworkInterface::new(
-            get_active_interfaces()?
+        None => {
+            let active_interfaces = get_active_interfaces()?;
+            if active_interfaces.len() > 1 {
+                warn!("Multiple network interfaces are active: {:#?}, consider specifying the interface with the -i argument. Using {}", &active_interfaces, &active_interfaces[0]);
+            }
+            Ok(
+            NetworkInterface::new(
+            active_interfaces
                 .into_iter()
                 .next()
                 .ok_or_else(|| anyhow!("No active network interface - consider overriding network interface selection with -i argument"))?,
-        )?),
+        )?)
+        }
     }?;
     debug!("Interface: {}", &interface.name);
 
@@ -372,6 +401,13 @@ pub fn exec(command: ExecCommand) -> anyhow::Result<()> {
             }
         }
 
+        // Temporarily set env var referring to this network namespace IP
+        // for the PostUp script and the application:
+        std::env::set_var(
+            "VOPONO_NS_IP",
+            &ns.veth_pair_ips.as_ref().unwrap().namespace_ip.to_string(),
+        );
+
         // Run PostUp script (if any)
         // Temporarily set env var referring to this network namespace name
         if let Some(pucmd) = postup {
@@ -386,6 +422,12 @@ pub fn exec(command: ExecCommand) -> anyhow::Result<()> {
             std::env::remove_var("VOPONO_NS");
         }
     }
+
+    // Set env var referring to the host IP for the application:
+    std::env::set_var(
+        "VOPONO_HOST_IP",
+        &ns.veth_pair_ips.as_ref().unwrap().host_ip.to_string(),
+    );
 
     let ns = ns.write_lockfile(&command.application)?;
 
@@ -430,6 +472,9 @@ pub fn exec(command: ExecCommand) -> anyhow::Result<()> {
         info!("Keep-alive flag active - will leave network namespace alive until ctrl+C received");
         stay_alive(None, signals);
     }
+
+    std::env::remove_var("VOPONO_NS_IP");
+    std::env::remove_var("VOPONO_HOST_IP");
 
     Ok(())
 }

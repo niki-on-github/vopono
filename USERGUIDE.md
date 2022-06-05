@@ -49,6 +49,42 @@ The current network namespace name is provided to the PostUp and PreDown
 scripts in the environment variable `$VOPONO_NS`. It is temporarily set
 when running these scripts only.
 
+Similarly, the network namespace IP address is provided via `$VOPONO_NS_IP`,
+and is available to the PostUp and PreDown scripts, and the application to
+run itself. `$VOPONO_NS_IP` is useful if you'd like to configure a server
+running within the network namespace to listen on its local IP address only
+(see below, for more information on that).
+
+The application to run within the namespace also has access to
+`$VOPONO_HOST_IP`, to get the IP address of the host.
+
+Note: These environment variables are currently only available from within
+the application/script to run, not on the command line. So the following
+doesn't work:
+
+`vopono exec {other Vopono options} 'echo "HOST IP: $VOPONO_HOST_IP"'`
+
+Output: `HOST IP: $VOPONO_HOST_IP` (the environ variable wasn't expanded).
+
+A work around is to create a executable script, that executes the 
+application you'd like to run:
+
+```bash
+#!/bin/bash
+
+echo "=> NETWORK NAMESPACE IP: $VOPONO_NS_IP"
+echo "=> HOST IP: $VOPONO_HOST_IP"
+```
+
+Execution: `vopono exec {other Vopono options} '/path/to/the/above/script.sh'`
+
+Output:
+
+```
+=> NETWORK NAMESPACE IP: 10.200.1.2
+=> HOST IP: 10.200.1.1
+```
+
 ### Host scripts
 
 Host scripts to run just after a network namespace is created and just before it is destroyed,
@@ -57,6 +93,15 @@ can be provided with the `postup` and `predown` arguments (or in the `config.tom
 Note these scripts run on the host (outside the network namespace), using the current working directory,
 and with the same user as the final application itself (which can be set
 with the `user` argument or config file entry).
+
+Script arguments (e.g. `script.sh arg1 arg1`), are currently not possible, resulting in an error:
+
+```
+$ vopono exec {other Vopono options} --postup 'echo POSTUP' ls
+[...]
+sudo: echo POSTUP: command not found
+[...]
+```
 
 ### Wireguard
 
@@ -255,6 +300,8 @@ Note for same daemons you may need to use the `-k` keep-alive option in
 case the process ID changes (you will then need to manually kill the
 daemon after finishing).
 
+#### transmission-daemon
+
 For example, to launch `transmission-daemon` that is externally
 accessible at `127.0.0.1:9091` (with outward connections via AzireVPN with Wireguard and a VPN server in Norway):
 
@@ -266,12 +313,32 @@ Note in the case of `transmission-daemon` the `-a *.*.*.*` argument is
 required to allow external connections to the daemon's web portal (your
 host machine will now count as external to the network namespace).
 
+Instead of listening on `*.*.*.*` you also can listen on `$VOPONO_NS_IP`,
+to listen on an IP address that is only reachable from the same machine,
+the network namespace runs on.
+
 When finished with vopono, you must manually kill the
 `transmission-daemon` since the PID changes (i.e. use `killall`).
+
+#### Jackett
+
+The same approach also works for [Jackett](https://github.com/Jackett/Jackett), e.g. with the setup from
+the [AUR PKGBUILD](https://aur.archlinux.org/packages/jackett-bin) (a separate `jackett` user and hosting on port `9117`):
+
+```bash
+$ vopono -v exec -u jackett "/usr/lib/jackett/jackett --NoRestart --NoUpdates --DataFolder /var/lib/jackett" -f 9117
+```
+
+You can then access the web UI on the host machine at `http://127.0.0.1:9117/UI/Dashboard`, but all of Jackett's connections will go via the VPN.
+
+#### Proxy to host
 
 By default, vopono runs a small TCP proxy to proxy the ports on your
 host machine to the ports on the network namespace - if you do not want
 this to run use the `--no-proxy` flag.
+
+In this case, you can read the IP of the network namespace from the
+terminal, or use `$VOPONO_NS_IP` to get it (e.g. to use it in a script).
 
 #### systemd service
 
